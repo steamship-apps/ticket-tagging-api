@@ -1,7 +1,7 @@
 {
   "type": "app",
-  "name": "",
-  "handle": "",
+  "name": "ticket-tagging-api",
+  "handle": "ticket-tagging-api",
   "version": "0.0.1",
   "description": "",
   "author": "",
