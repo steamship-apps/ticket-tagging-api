@@ -1,7 +1,5 @@
 import json
 from steamship import Steamship
-from src.api import QuestionAnswer
-from steamship.data.embedding import EmbedAndSearchResponse
 
 import os
 from typing import List
@@ -9,10 +7,15 @@ from typing import List
 __copyright__ = "Steamship"
 __license__ = "MIT"
 
-def test_greeting():
+from src.api import TicketTaggingApp
+
+
+def test_tag_ticket():
     """We can test the app like a regular python object!"""
     client = Steamship()
-    app = EmptyApp(client)
+    app = TicketTaggingApp(client)
 
-    assert(app.greet().body == "Hello, World!")
-    assert(app.greet(name="Ted").body == "Hello, Ted!")
+    assert app.set_labels(['mouse','tiger','elephant']).data == "Labels accepted"
+
+    result = app.tag_ticket('I really enjoy seeing large animals in the wild, especially cats and animals with tusks.')
+    result.data

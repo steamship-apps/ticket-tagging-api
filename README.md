@@ -13,8 +13,9 @@ trained model.
 
 ## Endpoints
 
-- **set_labels** (List[labels]) - Set the labels that will be used for tagging.  This can be a simple list of strings.
+- **set_labels** (List[labels]) - Set the labels that will be used for tagging.  This can be a simple list of strings. Resetting the labels after training a model will reset to zero-shot classification.  For best results, clean labels of special characters like underscores.
 - **tag_ticket**( ticket_text ) - Tag a ticket.  Returns confidences for all provided labels.  Throws an error if set_labels has not been called.  This method will work out of the box with a zero-shot classifier, and will seamlessly transition to a trained model after prerequisites are met below.
 - **add_example** (ticket_text, list[labels]) - Add a curated example for learning.  This could happen after a user manually confirms or rejects ticket suggestions, or when importing an existing set of pre-tagged tickets.  One call per ticket, or we could provide a batch interface.
 - **count_examples**() - Return both total count and count per tag of the examples that have been added so far.
 - **start_specialize**() - When sufficient data has been loaded, call this to switch from zero-shot to trained classifiers for better performance.
+- **evaluate()** - Compare performance of labeled tickets to added examples, watch for drift over time
