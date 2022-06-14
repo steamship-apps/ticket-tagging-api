@@ -19,3 +19,14 @@ def test_tag_ticket():
 
     result = app.tag_ticket('I really enjoy seeing large animals in the wild, especially cats and animals with tusks.')
     result.data
+
+
+def test_specialize():
+    """We can test the app like a regular python object!"""
+    client = Steamship()
+    app = TicketTaggingApp(client)
+
+    assert app.set_labels(['mouse','tiger','elephant']).data == "Labels accepted"
+
+    result = app.start_specialize()
+    result.data

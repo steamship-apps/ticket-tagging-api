@@ -1,4 +1,8 @@
 .venv
 venv
 .idea
-/src/config.json
+/src/resources/config.json
+build
+example/test_data.json
+example/.ipy*
+.DS_Store

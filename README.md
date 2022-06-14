@@ -18,4 +18,6 @@ trained model.
 - **add_example** (ticket_text, list[labels]) - Add a curated example for learning.  This could happen after a user manually confirms or rejects ticket suggestions, or when importing an existing set of pre-tagged tickets.  One call per ticket, or we could provide a batch interface.
 - **count_examples**() - Return both total count and count per tag of the examples that have been added so far.
 - **start_specialize**() - When sufficient data has been loaded, call this to switch from zero-shot to trained classifiers for better performance.
-- **evaluate()** - Compare performance of labeled tickets to added examples, watch for drift over time
+- **specialize_status**() - Call this to know the current status of the app: unspecialized, specialization_in_progress, or specialized.  This method *must* be polled after specialization begins for the app to switch to specialized mode.
+- **clear_examples**() - Remove all previously added examples
+- **evaluate()** - [not yet implemented] Compare performance of labeled tickets to added examples, watch for drift over time

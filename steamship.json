@@ -5,5 +5,12 @@
   "version": "0.0.1",
   "description": "",
   "author": "",
-  "entrypoint": "src.api.handler"
+  "entrypoint": "src.api.handler",
+  "configTemplate": {
+    "save_classifications": {
+      "type": "boolean",
+      "description": "Whether tagged tickets should be saved in the Space.",
+      "default": true
+    }
+  }
 }
