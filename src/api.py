@@ -184,7 +184,7 @@ class TicketTaggingApp(App):
         self._remove_status()
         File.create(self.client, blocks=[Block.CreateRequest(text='')], tags=[Tag.CreateRequest(kind='specialization_status', name='',
                                                          value={'status': 'trained'})])
-
+        return Response(json={'status': TicketTaggingApp.SpecializationStatus.SPECIALIZED.name})
       elif response_object.task.state == TaskState.failed:
         #switch to unspecialized; something went wrong
         self._remove_status()
