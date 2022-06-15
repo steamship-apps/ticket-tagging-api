@@ -46,7 +46,6 @@ class TicketTaggingApp(App):
        pass
     try:
       self.trained_classifier = PluginInstance.get(client, handle=self.trained_classifier_plugin_instance_handle).data
-      #TODO: Needs to check if the training job is done!
     except:
       # It's ok if this doesn't exist yet upon init.
       pass
@@ -119,7 +118,7 @@ class TicketTaggingApp(App):
 
     response = plugin_to_use.tag(ticket_text)
     response.wait()
-    result = {tag.name : tag.value['score'] for tag in response.data.file.blocks[0].tags }
+    result = {tag.name : (tag.value['score'] if 'score' in tag.value else tag.value['confidence']) for tag in response.data.file.blocks[0].tags }
     return Response(json=result)
 
 
@@ -152,7 +151,8 @@ class TicketTaggingApp(App):
     trainable_plugin_config['tag_kind'] = self.tag_kind
     trainable_plugin_config['include_tag_names'] = ','.join(self._get_current_labels())
 
-    self.trained_classifier = PluginInstance.create(self.client, plugin_handle='tagger-trainable-classifier-gcp-vertexai',
+    self.trained_classifier = PluginInstance.create(self.client, handle=self.trained_classifier_plugin_instance_handle,
+                                            plugin_handle='tagger-trainable-classifier-gcp-vertexai',
                                            config=trainable_plugin_config).data
     exporter = PluginInstance.get(self.client, handle='signed-url-exporter-1.0').data
     training_request = TrainingParameterPluginInput(
@@ -182,7 +182,7 @@ class TicketTaggingApp(App):
       if response_object.task.state == TaskState.succeeded:
         #SWITCH TO SPECIALIZED
         self._remove_status()
-        File.create(self.client, tags=[Tag.CreateRequest(kind='specialization_status',
+        File.create(self.client, blocks=[Block.CreateRequest(text='')], tags=[Tag.CreateRequest(kind='specialization_status', name='',
                                                          value={'status': 'trained'})])
 
       elif response_object.task.state == TaskState.failed:
