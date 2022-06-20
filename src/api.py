@@ -2,9 +2,7 @@ from enum import Enum
 from typing import Dict, Any
 from steamship import Steamship, PluginInstance, Block, Tag, File, SteamshipError
 from steamship.app import App, Response, post, create_handler
-import json
-import os
-
+import datetime
 from steamship.base import TaskState
 from steamship.data.operations.tagger import TagResponse
 from steamship.plugin.inputs.export_plugin_input import ExportPluginInput
@@ -116,7 +114,16 @@ class TicketTaggingApp(App):
       return Response(error=SteamshipError(message='Could not tag ticket; no classifier plugin initialized',
                                     suggestion='Have you called set_labels yet?'))
 
-    response = plugin_to_use.tag(ticket_text)
+
+    if self.save_classifications:
+      file : File = File.create(
+        self.client,
+        blocks=[Block.CreateRequest(text=ticket_text)],
+        tags=[Tag.CreateRequest(kind='metadata', name='metadata', value={"creation_datetime":f"{datetime.datetime.now().isoformat()}"})]
+      ).data
+      response = file.tag(plugin_instance=plugin_to_use.handle)
+    else:
+      response = plugin_to_use.tag(ticket_text)
     response.wait()
     result = {tag.name : (tag.value['score'] if 'score' in tag.value else tag.value['confidence']) for tag in response.data.file.blocks[0].tags }
     return Response(json=result)
@@ -138,7 +145,7 @@ class TicketTaggingApp(App):
     result = dict(total_examples=total_examples)
     label_examples = {}
     for label in labels:
-      num_label_examples = len(File.query(self.client, tag_filter_query=f'name "{label}"').data.files)
+      num_label_examples = len(File.query(self.client, tag_filter_query=f'kind "{self.tag_kind}" and name "{label}" and value("asserted") = true').data.files)
       label_examples[label] = num_label_examples
     result['label_examples'] = label_examples
     return Response(json=result)
@@ -151,6 +158,9 @@ class TicketTaggingApp(App):
     trainable_plugin_config['tag_kind'] = self.tag_kind
     trainable_plugin_config['include_tag_names'] = ','.join(self._get_current_labels())
 
+    if self.trained_classifier is not None:
+      self.trained_classifier.delete()
+
     self.trained_classifier = PluginInstance.create(self.client, handle=self.trained_classifier_plugin_instance_handle,
                                             plugin_handle='tagger-trainable-classifier-gcp-vertexai',
                                            config=trainable_plugin_config).data
@@ -158,7 +168,7 @@ class TicketTaggingApp(App):
     training_request = TrainingParameterPluginInput(
       plugin_instance=self.trained_classifier.handle,
       export_plugin_input=ExportPluginInput(
-        plugin_instance=exporter.handle, type="file", query='blocktag and value("asserted") = true',
+        plugin_instance=exporter.handle, type="file", query='blocktag and kind "{self.tag_kind}" and value("asserted") = true',
       ),
       training_params={},
     )

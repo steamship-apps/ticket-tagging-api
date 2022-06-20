@@ -13,7 +13,7 @@ from src.api import TicketTaggingApp
 def test_tag_ticket():
     """We can test the app like a regular python object!"""
     client = Steamship()
-    app = TicketTaggingApp(client)
+    app = TicketTaggingApp(client, config={'save_classifications':True})
 
     assert app.set_labels(['mouse','tiger','elephant']).data == "Labels accepted"
 
