@@ -168,7 +168,7 @@ class TicketTaggingApp(App):
     training_request = TrainingParameterPluginInput(
       plugin_instance=self.trained_classifier.handle,
       export_plugin_input=ExportPluginInput(
-        plugin_instance=exporter.handle, type="file", query='blocktag and kind "{self.tag_kind}" and value("asserted") = true',
+        plugin_instance=exporter.handle, type="file", query=f'blocktag and kind "{self.tag_kind}" and value("asserted") = true',
       ),
       training_params={},
     )
