@@ -21,3 +21,19 @@ trained model.
 - **specialize_status**() - Call this to know the current status of the app: unspecialized, specialization_in_progress, or specialized.  This method *must* be polled after specialization begins for the app to switch to specialized mode.
 - **clear_examples**() - Remove all previously added examples
 - **evaluate()** - [not yet implemented] Compare performance of labeled tickets to added examples, watch for drift over time
+
+## Full Example
+
+Full examples of usage are located as Jupyter notebooks in [example/](example/)
+
+## Developing
+
+Instructions for contributing to this project are located in [DEVELOPING.md](DEVELOPING.md)
+
+## Testing
+
+Instructions for testing this project are located in [TESTING.md](TESTING.md)
+
+## Deploying
+
+Instructions for deploying this project are located in [DEPLOYING.md](DEPLOYING.md)
