@@ -29,6 +29,7 @@ During the training and deployment of the trained model, the zero-shot model rem
 - **start_specialize**() - When sufficient data has been loaded, call this to switch from zero-shot to trained classifiers for better performance.
 - **specialize_status**() - Call this to know the current status of the app: unspecialized, specialization_in_progress, or specialized.  This method *must* be polled after specialization begins for the app to switch to specialized mode.
 - **clear_examples**() - Remove all previously added examples
+- **clear_trained_model**() - Remove any trained model
 - **evaluate()** - [not yet implemented] Compare performance of labeled tickets to added examples, watch for drift over time
 
 ## Full Example

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from steamship import Steamship, PluginInstance, Block, Tag, File, SteamshipError
 from steamship.app import App, Response, post, create_handler
 import datetime
@@ -19,22 +19,104 @@ except:
   from src.resources import config_json
 
 
+class KeyValueStore:
+  """A simple key value store hacked into Steamship.
+
+  Each entry is stored as an empty file whose "Key" has:
+    * Kind = KeyValueStore
+    * Name = the key of the (kv) pair
+    * Value = a dict set to the value
+  """
+
+  client: Steamship
+  namespace: str
+
+  def __init__(self, client: Steamship, namespace: str = "KeyValueStore"):
+    self.client = client
+    self.namespace = namespace
+
+  def _get_file(self, or_create: bool = False) -> Optional[File]:
+    status_files = File.query(self.client, f'filetag and kind "{self.namespace}"').data.files
+    if len(status_files) == 0:
+      if not or_create:
+        return None
+      return File.create(
+        self.client,
+        blocks=[Block.CreateRequest(text='')],
+        tags=[Tag.CreateRequest(kind=self.namespace, name='__init__')]
+      ).data
+    else:
+      return status_files[0]
+
+  def get(self, key: str) -> Optional[Dict]:
+    """Gets the value represented by `key`."""
+    file = self._get_file()
+
+    if file is None:
+      return None
+
+    for tag in file.tags:
+      if tag.kind == self.namespace and tag.name == key:
+        return tag.value
+
+  def delete(self, key: str) -> bool:
+    """Deletes the entry represented by `key`"""
+    file = self._get_file()
+
+    if file is None:
+      return False
+
+    deleted = False
+    for tag in file.tags:
+      if tag.kind == self.namespace and tag.name == key:
+        tag.delete()
+
+    return deleted
+
+  def set(self, key: str, value: Dict[str, Any]):
+    # Sets the entry (key, value)
+
+    # First delete it if it exists to avoid duplicate tags.
+    self.delete(key)
+
+    # Now get/create the file
+    file = self._get_file(or_create = True)
+
+    req = Tag.CreateRequest(
+      file_id=file.id,
+      kind=self.namespace,
+      name=key,
+      value=value
+    )
+    return self.client.post("tag/create", req, expect=Tag)
+
+  def reset(self):
+    """Deletes all keys"""
+    file = self._get_file()
+    if file is not None:
+      file.delete()
+
+
 class TicketTaggingApp(App):
 
   zero_shot_classifier_plugin_instance_handle = 'zero-shot-classifier-handle'
   trained_classifier_plugin_instance_handle = 'trained-classifier-handle'
   tag_kind = 'ticket-tag'
 
+  kvstore: KeyValueStore = None
+
   zero_shot_classifier : PluginInstance = None
   trained_classifier : PluginInstance = None
 
   save_classifications : bool = True
+
 
   def __init__(self, client: Steamship, config: Dict[str, Any] = None):
     super().__init__(client, config)
 
     self.plugins_config = config_json()
     self.save_classifications = config['save_classifications']
+    self.kvstore = KeyValueStore(client=client)
 
     #It's ok if this doesn't exist yet upon init.
     try:
@@ -49,8 +131,6 @@ class TicketTaggingApp(App):
       pass
 
 
-
-
   def _get_active_plugin(self):
     status, _ = self._get_specialization_status()
     if status == TicketTaggingApp.SpecializationStatus.SPECIALIZED:
@@ -60,29 +140,39 @@ class TicketTaggingApp(App):
     else:
       return None
 
+  STATUS_KEY = 'specialization_status'
+  STATUS_SUB_KEY = 'status'
+  RESPONSE_SUB_KEY = 'response'
+
   class SpecializationStatus(Enum):
+    """These are for use with the """
     UNSPECIALIZED='unspecialized'
     SPECIALIZED='specialized'
-    SPECIALIZATION_IN_PROGRESS='specialization_in_progress'
+    PREPARING ='specialization_in_progress:preparing' # Preparing dataset
+    TRAINING ='specialization_in_progress:training'   # Training
+    DEPLOYING ='specialization_in_progress:deploying' # Deploying
+
 
   def _get_specialization_status(self) -> (SpecializationStatus, dict):
-    status_files = File.query(self.client, 'filetag and kind "specialization_status"').data.files
-    if len(status_files) == 0:
+    """Returns the current specialization status"""
+    status_obj = self.kvstore.get(TicketTaggingApp.STATUS_KEY)
+    if status_obj is None:
       return (TicketTaggingApp.SpecializationStatus.UNSPECIALIZED, None)
-    status_tag = status_files[0].tags[0]
-    if status_tag.value['status'] == 'training':
-      return (TicketTaggingApp.SpecializationStatus.SPECIALIZATION_IN_PROGRESS, status_tag.value['response'])
     else:
-      return (TicketTaggingApp.SpecializationStatus.SPECIALIZED, None)
+      return (
+        status_obj.get(TicketTaggingApp.STATUS_SUB_KEY, None),
+        status_obj.get(TicketTaggingApp.RESULT_SUB_KEY, None)
+      )
 
   def _remove_status(self):
     # Remove any leftover status from previous runs;
-    status_files = File.query(self.client, 'filetag and kind "specialization_status"').data.files
-    for file in status_files:
-      # this shouldn't be necessary
-      file.client = self.client
-      file.delete()
+    self.kvstore.reset()
 
+  def _set_specialization_status(self, status: SpecializationStatus, response: dict):
+    self.kvstore.set(TicketTaggingApp.STATUS_KEY, {
+      TicketTaggingApp.STATUS_SUB_KEY: status,
+      TicketTaggingApp.RESPONSE_SUB_KEY: response
+    })
 
   def _get_current_labels(self) -> [str]:
       return self.zero_shot_classifier.config['labels'].split(',')
@@ -113,7 +203,6 @@ class TicketTaggingApp(App):
     if plugin_to_use is None:
       return Response(error=SteamshipError(message='Could not tag ticket; no classifier plugin initialized',
                                     suggestion='Have you called set_labels yet?'))
-
 
     if self.save_classifications:
       file : File = File.create(
@@ -150,10 +239,22 @@ class TicketTaggingApp(App):
     result['label_examples'] = label_examples
     return Response(json=result)
 
+  @post('clear_trained_model')
+  def clear_trained_model(self) -> Response:
+    self.kvstore.reset()
+    if self.trained_classifier is not None:
+      self.trained_classifier.delete()
+    return Response(string="OK")
+
   @post('start_specialize')
   def start_specialize(self) -> Response:
-    trainable_plugin_config = self.plugins_config['trainable_config']
+    # If we're already specializing, then fail.
+    (init_status, init_response) = self._get_specialization_status()
+    if init_status != TicketTaggingApp.SpecializationStatus.UNSPECIALIZED:
+      raise SteamshipError(message=f"Can not start specialization because specialization has already been started. Current status is {init_status}. Please POST to /clear_trained_model first.")
 
+    # If we're still here, we're ready to start.
+    trainable_plugin_config = self.plugins_config['trainable_config']
     trainable_plugin_config['single_or_multi_label'] = "multi"
     trainable_plugin_config['tag_kind'] = self.tag_kind
     trainable_plugin_config['include_tag_names'] = ','.join(self._get_current_labels())
@@ -173,13 +274,9 @@ class TicketTaggingApp(App):
       training_params={},
     )
     train_response = self.trained_classifier.train(training_request)
-
-    self._remove_status()
     response_dict = train_response.dict(exclude={'client', 'expect'})
-    File.create(self.client, blocks=[Block.CreateRequest(text='')], tags=[Tag.CreateRequest(kind='specialization_status', name='', value={'response':response_dict, 'status':'training'})])
-
+    self._set_specialization_status(TicketTaggingApp.SpecializationStatus.PREPARING, response_dict)
     return Response(string="Started specialization. Please poll specialize_status")
-
 
 
   @post('specialize_status')
