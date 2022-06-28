@@ -263,7 +263,7 @@ class TicketTaggingApp(App):
       self.trained_classifier.delete()
 
     self.trained_classifier = PluginInstance.create(self.client, handle=self.trained_classifier_plugin_instance_handle,
-                                            plugin_handle='tagger-trainable-classifier-gcp-vertexai',
+                                            plugin_handle='ted3-tagger-trainable-classifier-gcp-vertexai',
                                            config=trainable_plugin_config).data
     exporter = PluginInstance.get(self.client, handle='signed-url-exporter-1.0').data
     training_request = TrainingParameterPluginInput(
