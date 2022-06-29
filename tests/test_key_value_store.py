@@ -1,4 +1,6 @@
 import json
+from enum import Enum
+
 from steamship import Steamship
 
 import os
@@ -8,6 +10,21 @@ __copyright__ = "Steamship"
 __license__ = "MIT"
 
 from src.api import KeyValueStore
+
+
+class SpecializationStatus(str, Enum):
+    """These are for use with the """
+    UNSPECIALIZED = 'unspecialized'
+    SPECIALIZED = 'specialized'
+    SPECIALIZATION_IN_PROGRESS = 'specialization_in_progress'
+
+    @staticmethod
+    def from_str(string: str) -> "SpecializationStatus":
+        if string == SpecializationStatus.SPECIALIZED.value:
+            return SpecializationStatus.SPECIALIZED
+        elif string == SpecializationStatus.SPECIALIZATION_IN_PROGRESS.value:
+            return SpecializationStatus.SPECIALIZATION_IN_PROGRESS
+        return SpecializationStatus.UNSPECIALIZED
 
 
 def test_key_value_store():
@@ -57,6 +74,14 @@ def test_key_value_store():
 
     # But still others
     assert kv.get(KEY_2) == value_3
+
+    # Test enum
+    kv.set(KEY_1, {"k": SpecializationStatus.SPECIALIZED.value})
+    stat = kv.get(KEY_1)["k"]
+    assert isinstance(stat, str)
+    stat_enum = SpecializationStatus.from_str(stat)
+    assert isinstance(stat_enum, SpecializationStatus)
+    assert stat_enum == SpecializationStatus.SPECIALIZED
 
     # Delete all
     kv.reset()

@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 from typing import Dict, Any, Optional
 from steamship import Steamship, PluginInstance, Block, Tag, File, SteamshipError
@@ -97,6 +98,23 @@ class KeyValueStore:
       file.delete()
 
 
+class SpecializationStatus(str, Enum):
+  """These are for use with the """
+  UNSPECIALIZED = 'unspecialized'
+  SPECIALIZED = 'specialized'
+  SPECIALIZATION_IN_PROGRESS = 'specialization_in_progress'
+
+  @staticmethod
+  def from_str(string: Optional[str]) -> "Optional[SpecializationStatus]":
+    if string is None:
+      return None
+    elif string == SpecializationStatus.SPECIALIZED.value:
+      return SpecializationStatus.SPECIALIZED
+    elif string == SpecializationStatus.SPECIALIZATION_IN_PROGRESS.value:
+      return SpecializationStatus.SPECIALIZATION_IN_PROGRESS
+    return SpecializationStatus.UNSPECIALIZED
+
+
 class TicketTaggingApp(App):
 
   zero_shot_classifier_plugin_instance_handle = 'zero-shot-classifier-handle'
@@ -133,9 +151,11 @@ class TicketTaggingApp(App):
 
   def _get_active_plugin(self):
     status, _ = self._get_specialization_status()
-    if status == TicketTaggingApp.SpecializationStatus.SPECIALIZED:
+    if status == SpecializationStatus.SPECIALIZED:
+      logging.info("Tagging returning trained classifier")
       return self.trained_classifier
     elif self.zero_shot_classifier is not None:
+      logging.info("Tagging returning zero-shot classifier")
       return self.zero_shot_classifier
     else:
       return None
@@ -144,24 +164,15 @@ class TicketTaggingApp(App):
   STATUS_SUB_KEY = 'status'
   RESPONSE_SUB_KEY = 'response'
 
-  class SpecializationStatus(Enum):
-    """These are for use with the """
-    UNSPECIALIZED='unspecialized'
-    SPECIALIZED='specialized'
-    PREPARING ='specialization_in_progress:preparing' # Preparing dataset
-    TRAINING ='specialization_in_progress:training'   # Training
-    DEPLOYING ='specialization_in_progress:deploying' # Deploying
-
-
-  def _get_specialization_status(self) -> (SpecializationStatus, dict):
+  def _get_specialization_status(self) -> (Optional[SpecializationStatus], dict):
     """Returns the current specialization status"""
     status_obj = self.kvstore.get(TicketTaggingApp.STATUS_KEY)
     if status_obj is None:
-      return (TicketTaggingApp.SpecializationStatus.UNSPECIALIZED, None)
+      return (SpecializationStatus.UNSPECIALIZED, None)
     else:
       return (
-        status_obj.get(TicketTaggingApp.STATUS_SUB_KEY, None),
-        status_obj.get(TicketTaggingApp.RESULT_SUB_KEY, None)
+        SpecializationStatus.from_str(status_obj.get(TicketTaggingApp.STATUS_SUB_KEY, None)),
+        status_obj.get(TicketTaggingApp.RESPONSE_SUB_KEY, None)
       )
 
   def _remove_status(self):
@@ -196,7 +207,6 @@ class TicketTaggingApp(App):
 
     return Response(string="Labels accepted")
 
-
   @post('tag_ticket')
   def tag_ticket(self, ticket_text: str = None) -> Response:
     plugin_to_use = self._get_active_plugin()
@@ -204,6 +214,7 @@ class TicketTaggingApp(App):
       return Response(error=SteamshipError(message='Could not tag ticket; no classifier plugin initialized',
                                     suggestion='Have you called set_labels yet?'))
 
+    logging.info(f"Tagging: {ticket_text}")
     if self.save_classifications:
       file : File = File.create(
         self.client,
@@ -214,6 +225,16 @@ class TicketTaggingApp(App):
     else:
       response = plugin_to_use.tag(ticket_text)
     response.wait()
+
+    if response.error:
+      raise response.error
+    if response.data is None:
+      raise SteamshipError(message="Tagging response returned no data.")
+    if response.data.file is None:
+      raise SteamshipError(message="Tagging response returned no file.")
+    if not response.data.file.blocks:
+      raise SteamshipError(message="Tagging response returned no blocks.")
+
     result = {tag.name : (tag.value['score'] if 'score' in tag.value else tag.value['confidence']) for tag in response.data.file.blocks[0].tags }
     return Response(json=result)
 
@@ -250,7 +271,7 @@ class TicketTaggingApp(App):
   def start_specialize(self) -> Response:
     # If we're already specializing, then fail.
     (init_status, init_response) = self._get_specialization_status()
-    if init_status != TicketTaggingApp.SpecializationStatus.UNSPECIALIZED:
+    if init_status != SpecializationStatus.UNSPECIALIZED:
       raise SteamshipError(message=f"Can not start specialization because specialization has already been started. Current status is {init_status}. Please POST to /clear_trained_model first.")
 
     # If we're still here, we're ready to start.
@@ -262,9 +283,13 @@ class TicketTaggingApp(App):
     if self.trained_classifier is not None:
       self.trained_classifier.delete()
 
-    self.trained_classifier = PluginInstance.create(self.client, handle=self.trained_classifier_plugin_instance_handle,
-                                            plugin_handle='ted3-tagger-trainable-classifier-gcp-vertexai',
-                                           config=trainable_plugin_config).data
+    self.trained_classifier = PluginInstance.create(
+      self.client,
+      handle=self.trained_classifier_plugin_instance_handle,
+      plugin_handle='tagger-trainable-classifier-gcp-vertexai',
+      config=trainable_plugin_config
+    ).data
+
     exporter = PluginInstance.get(self.client, handle='signed-url-exporter-1.0').data
     training_request = TrainingParameterPluginInput(
       plugin_instance=self.trained_classifier.handle,
@@ -275,14 +300,14 @@ class TicketTaggingApp(App):
     )
     train_response = self.trained_classifier.train(training_request)
     response_dict = train_response.dict(exclude={'client', 'expect'})
-    self._set_specialization_status(TicketTaggingApp.SpecializationStatus.PREPARING, response_dict)
+    self._set_specialization_status(SpecializationStatus.SPECIALIZATION_IN_PROGRESS, response_dict)
     return Response(string="Started specialization. Please poll specialize_status")
 
 
   @post('specialize_status')
-  def specialize_status(self)  -> Response:
+  def specialize_status(self) -> Response:
     status, response = self._get_specialization_status()
-    if status == TicketTaggingApp.SpecializationStatus.SPECIALIZATION_IN_PROGRESS:
+    if status == SpecializationStatus.SPECIALIZATION_IN_PROGRESS:
       response_object = BaseResponse.parse_obj(response)
       response_object.client = self.client
       response_object.refresh()
@@ -291,11 +316,11 @@ class TicketTaggingApp(App):
         self._remove_status()
         File.create(self.client, blocks=[Block.CreateRequest(text='')], tags=[Tag.CreateRequest(kind='specialization_status', name='',
                                                          value={'status': 'trained'})])
-        return Response(json={'status': TicketTaggingApp.SpecializationStatus.SPECIALIZED.name})
+        return Response(json={'status': SpecializationStatus.SPECIALIZED.name})
       elif response_object.task.state == TaskState.failed:
         #switch to unspecialized; something went wrong
         self._remove_status()
-        return Response(json={'status': TicketTaggingApp.SpecializationStatus.UNSPECIALIZED.name, 'message':response_object.task.status_message})
+        return Response(json={'status': SpecializationStatus.UNSPECIALIZED.name, 'message':response_object.task.status_message})
       else:
         return Response(json={'status':status.name})
     else:
