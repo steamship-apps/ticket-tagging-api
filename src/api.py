@@ -194,7 +194,7 @@ class TicketTaggingApp(App):
     plugin_config['labels'] = ','.join(labels)
     plugin_config['multi_label'] = True
     plugin_config['tag_kind'] = self.tag_kind
-    plugin_config['use_gpu'] = True
+    plugin_config['use_gpu'] = False # Note: Recently HuggingFace has been throwing CUDA errors if True!
 
     if self.zero_shot_classifier is not None:
       self.zero_shot_classifier.delete()
@@ -202,8 +202,11 @@ class TicketTaggingApp(App):
     if self.trained_classifier is not None:
       self.trained_classifier.delete()
 
-    self.zero_shot_classifier = PluginInstance.create(self.client, handle=self.zero_shot_classifier_plugin_instance_handle,
-                                                      plugin_handle='tagger-zero-shot-class-hf-bart-mnli', config=plugin_config).data
+    self.zero_shot_classifier = PluginInstance.create(
+      self.client,
+      handle=self.zero_shot_classifier_plugin_instance_handle,
+      plugin_handle='tagger-zero-shot-class-hf-bart-mnli', config=plugin_config
+    ).data
 
     return Response(string="Labels accepted")
 
