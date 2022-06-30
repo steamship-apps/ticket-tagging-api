@@ -106,6 +106,7 @@ class SpecializationStatus(str, Enum):
 
   @staticmethod
   def from_str(string: Optional[str]) -> "Optional[SpecializationStatus]":
+    logging.info(f"Decoding specialization status from {string}")
     if string is None:
       return None
     elif string == SpecializationStatus.SPECIALIZED.value:
@@ -168,6 +169,7 @@ class TicketTaggingApp(App):
     """Returns the current specialization status"""
     status_obj = self.kvstore.get(TicketTaggingApp.STATUS_KEY)
     if status_obj is None:
+      logging.info("No prior specialization status in KeyValue store: returning UNSPECIALIZED")
       return (SpecializationStatus.UNSPECIALIZED, None)
     else:
       return (
@@ -303,6 +305,7 @@ class TicketTaggingApp(App):
     )
     train_response = self.trained_classifier.train(training_request)
     response_dict = train_response.dict(exclude={'client', 'expect'})
+    self._remove_status()
     self._set_specialization_status(SpecializationStatus.SPECIALIZATION_IN_PROGRESS, response_dict)
     return Response(string="Started specialization. Please poll specialize_status")
 
@@ -310,23 +313,28 @@ class TicketTaggingApp(App):
   @post('specialize_status')
   def specialize_status(self) -> Response:
     status, response = self._get_specialization_status()
+    logging.info(f"[/specialize_status] Found stored status. {status} With response: {response} in Space {self.client.config.space_id} / {self.client.config.space_handle}")
     if status == SpecializationStatus.SPECIALIZATION_IN_PROGRESS:
       response_object = BaseResponse.parse_obj(response)
       response_object.client = self.client
       response_object.refresh()
+      logging.info(f"[/specialize_status] Specialization in progress. {response}")
       if response_object.task.state == TaskState.succeeded:
         #SWITCH TO SPECIALIZED
         self._remove_status()
-        File.create(self.client, blocks=[Block.CreateRequest(text='')], tags=[Tag.CreateRequest(kind='specialization_status', name='',
-                                                         value={'status': 'trained'})])
+        self._set_specialization_status(SpecializationStatus.SPECIALIZED, response)
+        logging.info(f"[/specialize_status] Switching to specialized! {response}")
         return Response(json={'status': SpecializationStatus.SPECIALIZED.name})
       elif response_object.task.state == TaskState.failed:
         #switch to unspecialized; something went wrong
         self._remove_status()
+        logging.info(f"[/specialize_status] Specialization failed! {response}")
         return Response(json={'status': SpecializationStatus.UNSPECIALIZED.name, 'message':response_object.task.status_message})
       else:
+        logging.info(f"[/specialize_status] Response object did not indicate a state transition")
         return Response(json={'status':status.name})
     else:
+      logging.info(f"[/specialize_status] Returning pre-set specialization status: {status.name}")
       return Response(json={'status':status.name})
 
 
