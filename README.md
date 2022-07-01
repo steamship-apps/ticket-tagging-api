@@ -3,7 +3,6 @@
 This app automatically assigns labels or tags to support-system tickets as they come in.  It assumes
 your data will be held elsewhere, and the API provided will be used to tag the tickets as they come in.
 
-
 ## Smooth transition from zero-shot to trained classification
 
 The app allows you to begin tagging tickets immediately with no training, leveraging zero-shot classification.  If you wish
@@ -12,7 +11,15 @@ trained model.
 
 During the training and deployment of the trained model, the zero-shot model remains active and usable, as shown below: 
 
-![Diagram of Specialization Transition](specialization_status.png)
+![Diagram of Specialization Transition](docs/specialization_status.png)
+
+## Overall Workflow
+
+The following flowchart the this app's workflow. You can find an HTTP-centric implementation of this workflow 
+in the [App Usage Notebook](example/app_usage.ipynb) and an example of creating new app instance endpoints in the
+[App Instance Creation Notebook](example/app_instance_creation.ipynb).
+
+![App Workflow Diagram](docs/app_workflow.png)
 
 ## Using
 
