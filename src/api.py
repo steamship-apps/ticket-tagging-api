@@ -5,7 +5,7 @@ from steamship import Steamship, PluginInstance, Block, Tag, File, SteamshipErro
 from steamship.app import App, Response, post, create_handler
 import datetime
 from steamship.base import TaskState
-from steamship.data.operations.tagger import TagResponse
+from steamship.data.operations.tagger import TagResponse, TagRequest
 from steamship.plugin.inputs.export_plugin_input import ExportPluginInput
 from steamship.plugin.inputs.training_parameter_plugin_input import TrainingParameterPluginInput
 from steamship.base.response import Response as BaseResponse
@@ -212,23 +212,33 @@ class TicketTaggingApp(App):
 
     return Response(string="Labels accepted")
 
-  @post('tag_ticket')
-  def tag_ticket(self, ticket_text: str = None) -> Response:
+
+  def _tag_tickets(self, blocks: [Block.CreateRequest], return_many: bool) -> Response:
     plugin_to_use = self._get_active_plugin()
     if plugin_to_use is None:
       return Response(error=SteamshipError(message='Could not tag ticket; no classifier plugin initialized',
-                                    suggestion='Have you called set_labels yet?'))
+                                           suggestion='Have you called set_labels yet?'))
 
-    logging.info(f"Tagging: {ticket_text}")
+    logging.info(f"Tagging: {blocks}")
     if self.save_classifications:
-      file : File = File.create(
+      file: File = File.create(
         self.client,
-        blocks=[Block.CreateRequest(text=ticket_text)],
-        tags=[Tag.CreateRequest(kind='metadata', name='metadata', value={"creation_datetime":f"{datetime.datetime.now().isoformat()}"})]
+        blocks=blocks,
+        tags=[Tag.CreateRequest(kind='metadata', name='metadata',
+                                value={"creation_datetime": f"{datetime.datetime.now().isoformat()}"})]
       ).data
       response = file.tag(plugin_instance=plugin_to_use.handle)
     else:
-      response = plugin_to_use.tag(ticket_text)
+      req = TagRequest(
+        type="inline",
+        file=File.CreateRequest(blocks=blocks),
+        plugin_instance=plugin_to_use.handle,
+      )
+      response = self.client.post(
+        "plugin/instance/tag",
+        req,
+        expect=TagResponse,
+      )
     response.wait()
 
     if response.error:
@@ -240,8 +250,26 @@ class TicketTaggingApp(App):
     if not response.data.file.blocks:
       raise SteamshipError(message="Tagging response returned no blocks.")
 
-    result = {tag.name : (tag.value['score'] if 'score' in tag.value else tag.value['confidence']) for tag in response.data.file.blocks[0].tags }
+    result = [{tag.name: (tag.value['score'] if 'score' in tag.value else tag.value['confidence']) for tag in
+              block.tags} for block in response.data.file.blocks ]
+    if not return_many:
+      result = result[0]
+
     return Response(json=result)
+
+
+  @post('tag_ticket')
+  def tag_ticket(self, ticket_text: str = None) -> Response:
+    blocks = [Block.CreateRequest(text=ticket_text)]
+    return self._tag_tickets(blocks, return_many=False)
+
+  @post('tag_tickets')
+  def tag_tickets(self, ticket_texts: [str] = None) -> Response:
+    blocks = [Block.CreateRequest(text=ticket_text) for ticket_text in ticket_texts]
+    return self._tag_tickets(blocks, return_many=True)
+
+
+
 
 
   @post('add_example')
