@@ -1,4 +1,5 @@
 import logging
+from logging import Logger
 from enum import Enum
 from typing import Dict, Any, Optional
 from steamship import Steamship, PluginInstance, Block, Tag, File, SteamshipError
@@ -130,8 +131,8 @@ class TicketTaggingApp(App):
   save_classifications : bool = True
 
 
-  def __init__(self, client: Steamship, config: Dict[str, Any] = None):
-    super().__init__(client, config)
+  def __init__(self, client: Steamship, config: Dict[str, Any] = None, logger: Logger = None):
+    super().__init__(client, config, logger)
 
     self.plugins_config = config_json()
     self.save_classifications = config['save_classifications']
@@ -269,17 +270,31 @@ class TicketTaggingApp(App):
     return self._tag_tickets(blocks, return_many=True)
 
 
-
+  def _add_example(self, ticket_text: str, labels: [str]) -> Response:
+    tags = [Tag.CreateRequest(kind=self.tag_kind, name=label, value={'asserted': True}) for label in labels]
+    return File.create(self.client, blocks=[Block.CreateRequest(text=ticket_text, tags=tags)])
 
 
   @post('add_example')
   def add_example(self, ticket_text: str, labels: [str]) -> Response:
-    tags = [Tag.CreateRequest(kind=self.tag_kind, name=label, value={'asserted':True}) for label in labels]
-    file = File.create(self.client, blocks=[Block.CreateRequest(text=ticket_text, tags=tags)]).data
-    if file is not None:
+    response = self._add_example(ticket_text, labels)
+    if response.data is not None:
       return Response(string='Example accepted')
     else:
       return Response(error=SteamshipError(message='Could not add example'))
+
+  @post('add_examples')
+  def add_examples(self, ticket_texts: [str], labels: [[str]]) -> Response:
+    if len(ticket_texts) != len(labels):
+      return Response(error=SteamshipError(message="Must provide same number of ticket_texts and label lists"))
+    success_count = 0
+    for i, ticket_text in enumerate(ticket_texts) :
+      response = self._add_example(ticket_text, labels[i])
+      if response.data is not None:
+        success_count += 1
+      else:
+        return Response(error=SteamshipError(message=f'Could not add example {i}'))
+    return Response(string=f'{success_count} examples accepted')
 
   @post('count_examples')
   def count_examples(self) -> Response:
