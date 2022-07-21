@@ -131,8 +131,8 @@ class TicketTaggingApp(App):
   save_classifications : bool = True
 
 
-  def __init__(self, client: Steamship, config: Dict[str, Any] = None, logger: Logger = None):
-    super().__init__(client, config, logger)
+  def __init__(self, client: Steamship, config: Dict[str, Any] = None):
+    super().__init__(client, config)
 
     self.plugins_config = config_json()
     self.save_classifications = config['save_classifications']
